@@ -62,23 +62,35 @@
             border-bottom: 2px solid var(--danger);
             padding-bottom: 5px;
         }
-        /* Botón de Baja */
-        .btn-baja {
-            display: none; /* Se muestra solo si está anotado */
+        
+        /* Botones */
+        .btn-baja, .btn-sumarme {
+            display: none; /* Se ocultan por defecto y JS decide cuál mostrar */
             width: 100%;
-            background-color: transparent;
-            color: var(--danger);
-            border: 1px solid var(--danger);
-            padding: 10px;
+            padding: 12px;
             border-radius: 8px;
             cursor: pointer;
             margin-top: 20px;
             font-weight: bold;
+            font-size: 1rem;
             transition: all 0.3s;
+        }
+        .btn-baja {
+            background-color: transparent;
+            color: var(--danger);
+            border: 2px solid var(--danger);
         }
         .btn-baja:hover {
             background-color: var(--danger);
             color: white;
+        }
+        .btn-sumarme {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+        }
+        .btn-sumarme:hover {
+            background-color: #1b5e20;
         }
     </style>
 </head>
@@ -94,15 +106,14 @@
         <ul id="lista-suplentes"></ul>
 
         <button id="btn-baja" class="btn-baja" onclick="confirmarBaja()">❌ DARME DE BAJA</button>
+        <button id="btn-sumarme" class="btn-sumarme" onclick="volverASumarme()">⚽ VOLVER A SUMARME</button>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
         import { getDatabase, ref, set, get, onValue, remove } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
-        // ==========================================
-        // 1. REEMPLAZÁ CON TU CONFIG (LA QUE YA TENÍAS)
-        // ==========================================
+        // Credenciales proporcionadas
         const firebaseConfig = {
             apiKey: "AIzaSyCgdElL7rXE9IPoJ1L0gRodBhpxrKDyA4Q",
             authDomain: "futbol-bumper.firebaseapp.com",
@@ -136,18 +147,40 @@
         const matchId = `partido_${fechaPartido.id}`;
 
         // ==========================================
-        // REGISTRO Y BAJA
+        // ACCIONES DE LOS BOTONES
         // ==========================================
         window.confirmarBaja = async function() {
-            const confirmacion = confirm("¿Estás seguro de que querés darte de baja de la lista?");
+            const confirmacion = confirm("¿Estás seguro de que querés darte de baja del partido?");
             if (confirmacion) {
                 const uid = localStorage.getItem('futbol_uid');
+                
+                // Lo borramos de Firebase
                 await remove(ref(db, `partidos/${matchId}/${uid}`));
-                alert("Te has dado de baja correctamente.");
-                document.getElementById('btn-baja').style.display = 'none';
+                
+                // Guardamos en el celular que se bajó voluntariamente DE ESTE PARTIDO
+                localStorage.setItem(`baja_${matchId}`, 'true'); 
+                
+                alert("Te has dado de baja. Si cambiás de opinión, podés volver a sumarte.");
             }
         }
 
+        window.volverASumarme = async function() {
+            const uid = localStorage.getItem('futbol_uid');
+            const name = localStorage.getItem('futbol_name');
+            
+            // Borramos la marca de que se había bajado
+            localStorage.removeItem(`baja_${matchId}`);
+            
+            // Lo anotamos de nuevo con un NUEVO timestamp (va al final de la fila)
+            await set(ref(db, `partidos/${matchId}/${uid}`), {
+                nombre: name,
+                timestamp: Date.now()
+            });
+        }
+
+        // ==========================================
+        // AUTO-REGISTRO INTELIGENTE
+        // ==========================================
         async function autoRegister() {
             let uid = localStorage.getItem('futbol_uid');
             let name = localStorage.getItem('futbol_name');
@@ -160,17 +193,18 @@
                 localStorage.setItem('futbol_name', name.trim());
             }
 
+            const seDioDeBaja = localStorage.getItem(`baja_${matchId}`);
             const playerRef = ref(db, `partidos/${matchId}/${uid}`);
             const snapshot = await get(playerRef);
             
-            if (!snapshot.exists()) {
+            // Si NO está en la base de datos y NO se dio de baja, lo anotamos automático.
+            // Si se dio de baja, lo ignoramos y dejamos que toque el botón de sumarse.
+            if (!snapshot.exists() && seDioDeBaja !== 'true') {
                 await set(playerRef, {
                     nombre: name.trim(),
                     timestamp: Date.now()
                 });
             }
-            // Si está anotado, mostramos el botón de baja
-            document.getElementById('btn-baja').style.display = 'block';
         }
 
         // ==========================================
@@ -188,10 +222,21 @@
                 players.sort((a, b) => a.timestamp - b.timestamp);
             }
 
-            // Ocultar botón si el usuario actual no está en la lista de este partido
+            // Gestionar visibilidad de botones en tiempo real
             const myUid = localStorage.getItem('futbol_uid');
             const isMeRegistered = players.some(p => p.id === myUid);
-            document.getElementById('btn-baja').style.display = isMeRegistered ? 'block' : 'none';
+            const seDioDeBaja = localStorage.getItem(`baja_${matchId}`);
+
+            if (isMeRegistered) {
+                document.getElementById('btn-baja').style.display = 'block';
+                document.getElementById('btn-sumarme').style.display = 'none';
+            } else if (seDioDeBaja === 'true') {
+                document.getElementById('btn-baja').style.display = 'none';
+                document.getElementById('btn-sumarme').style.display = 'block';
+            } else {
+                document.getElementById('btn-baja').style.display = 'none';
+                document.getElementById('btn-sumarme').style.display = 'none';
+            }
 
             let arqueros = [];
             let jugadores = [];
@@ -234,6 +279,7 @@
             document.getElementById('lista-suplentes').innerHTML = htmlSuplentes;
         });
 
+        // Ejecutamos el registro al entrar
         autoRegister();
     </script>
 </body>
