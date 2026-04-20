@@ -10,6 +10,7 @@
             --bg: #f4f6f8;
             --card: #ffffff;
             --text: #333333;
+            --danger: #d32f2f;
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -57,9 +58,27 @@
         li:nth-child(even) { background-color: #fcfcfc; }
         .suplentes-title {
             margin-top: 25px;
-            color: #d32f2f;
-            border-bottom: 2px solid #d32f2f;
+            color: var(--danger);
+            border-bottom: 2px solid var(--danger);
             padding-bottom: 5px;
+        }
+        /* Botón de Baja */
+        .btn-baja {
+            display: none; /* Se muestra solo si está anotado */
+            width: 100%;
+            background-color: transparent;
+            color: var(--danger);
+            border: 1px solid var(--danger);
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 20px;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        .btn-baja:hover {
+            background-color: var(--danger);
+            color: white;
         }
     </style>
 </head>
@@ -69,20 +88,20 @@
         <h2>Miércoles <span id="fecha-label"></span> La Meca 21:00 hs</h2>
         <h3>$ 6.000</h3>
         
-        <ul id="lista-titulares">
-            </ul>
+        <ul id="lista-titulares"></ul>
 
         <h2 class="suplentes-title">Suplentes:</h2>
-        <ul id="lista-suplentes">
-            </ul>
+        <ul id="lista-suplentes"></ul>
+
+        <button id="btn-baja" class="btn-baja" onclick="confirmarBaja()">❌ DARME DE BAJA</button>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+        import { getDatabase, ref, set, get, onValue, remove } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
         // ==========================================
-        // 1. REEMPLAZÁ ESTO CON TU CONFIG DE FIREBASE
+        // 1. REEMPLAZÁ CON TU CONFIG (LA QUE YA TENÍAS)
         // ==========================================
         const firebaseConfig = {
             apiKey: "AIzaSyCgdElL7rXE9IPoJ1L0gRodBhpxrKDyA4Q",
@@ -99,15 +118,13 @@
         const db = getDatabase(app);
 
         // ==========================================
-        // 2. LÓGICA DE FECHAS
+        // LÓGICA DE FECHAS
         // ==========================================
         function getNextWednesday() {
             const d = new Date();
-            const day = d.getDay(); // 0:Dom, 1:Lun, 2:Mar, 3:Mie...
+            const day = d.getDay();
             let daysUntilWed = (3 - day + 7) % 7;
-            if (daysUntilWed === 0 && d.getHours() >= 22) {
-                daysUntilWed = 7; // Si es miércoles y ya pasó el partido, salta a la otra semana
-            }
+            if (daysUntilWed === 0 && d.getHours() >= 22) daysUntilWed = 7;
             d.setDate(d.getDate() + daysUntilWed);
             const dd = String(d.getDate()).padStart(2, '0');
             const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -119,36 +136,45 @@
         const matchId = `partido_${fechaPartido.id}`;
 
         // ==========================================
-        // 3. AUTO-REGISTRO DEL JUGADOR
+        // REGISTRO Y BAJA
         // ==========================================
+        window.confirmarBaja = async function() {
+            const confirmacion = confirm("¿Estás seguro de que querés darte de baja de la lista?");
+            if (confirmacion) {
+                const uid = localStorage.getItem('futbol_uid');
+                await remove(ref(db, `partidos/${matchId}/${uid}`));
+                alert("Te has dado de baja correctamente.");
+                document.getElementById('btn-baja').style.display = 'none';
+            }
+        }
+
         async function autoRegister() {
             let uid = localStorage.getItem('futbol_uid');
             let name = localStorage.getItem('futbol_name');
 
             if (!name || !uid) {
-                // Es la primera vez que abre el link
                 name = prompt("¡Hola! ¿Cuál es tu nombre/apodo para anotarte al partido?");
-                if (!name || name.trim() === '') return; // Si cancela, no hace nada
-                
+                if (!name || name.trim() === '') return;
                 uid = 'jugador_' + Date.now() + Math.random().toString(36).substr(2, 5);
                 localStorage.setItem('futbol_uid', uid);
                 localStorage.setItem('futbol_name', name.trim());
             }
 
-            // Chequeamos si ya está anotado en ESTE partido
             const playerRef = ref(db, `partidos/${matchId}/${uid}`);
-            get(playerRef).then((snapshot) => {
-                if (!snapshot.exists()) {
-                    set(playerRef, {
-                        nombre: name.trim(),
-                        timestamp: Date.now()
-                    });
-                }
-            });
+            const snapshot = await get(playerRef);
+            
+            if (!snapshot.exists()) {
+                await set(playerRef, {
+                    nombre: name.trim(),
+                    timestamp: Date.now()
+                });
+            }
+            // Si está anotado, mostramos el botón de baja
+            document.getElementById('btn-baja').style.display = 'block';
         }
 
         // ==========================================
-        // 4. LEER BASE DE DATOS Y RENDERIZAR (TIEMPO REAL)
+        // RENDERIZADO EN TIEMPO REAL
         // ==========================================
         const matchRef = ref(db, `partidos/${matchId}`);
         onValue(matchRef, (snapshot) => {
@@ -157,11 +183,15 @@
             
             if (data) {
                 for (let key in data) {
-                    players.push(data[key]);
+                    players.push({ id: key, ...data[key] });
                 }
-                // Ordenar por orden de llegada
                 players.sort((a, b) => a.timestamp - b.timestamp);
             }
+
+            // Ocultar botón si el usuario actual no está en la lista de este partido
+            const myUid = localStorage.getItem('futbol_uid');
+            const isMeRegistered = players.some(p => p.id === myUid);
+            document.getElementById('btn-baja').style.display = isMeRegistered ? 'block' : 'none';
 
             let arqueros = [];
             let jugadores = [];
@@ -171,21 +201,15 @@
             players.forEach(p => {
                 let n = p.nombre.toLowerCase();
                 if (arquerosValidos.includes(n)) {
-                    if (arqueros.length < 2) {
-                        arqueros.push(p);
-                    } else {
-                        suplentes.push(p); // El tercer arquero va a suplentes
-                    }
+                    if (arqueros.length < 2) arqueros.push(p);
+                    else suplentes.push(p);
                 } else {
-                    if (jugadores.length < 14) {
-                        jugadores.push(p);
-                    } else {
-                        suplentes.push(p);
-                    }
+                    if (jugadores.length < 14) jugadores.push(p);
+                    else suplentes.push(p);
                 }
             });
 
-            // Dibujar Titulares (1 al 16)
+            // Dibujar Titulares
             let htmlTitulares = '';
             for (let i = 1; i <= 16; i++) {
                 if (i === 1 || i === 2) {
@@ -210,9 +234,7 @@
             document.getElementById('lista-suplentes').innerHTML = htmlSuplentes;
         });
 
-        // Ejecutar el registro apenas entra
         autoRegister();
-
     </script>
 </body>
 </html>
