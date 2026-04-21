@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fútbol La Meca</title>
+    <link rel="stylesheet" href="styles.css">
+    <script type="module" defer src="main.js"></script>
+</head>
+<body class="body">
+    <header class="header">
+        <h1 class="title">Fútbol Bumper Fit</h1>
+    </header>
+    <main class="main">
+        <div class="container">
+            <h3>La Meca 21:00 hs | $ 6.000 c/u</h3>
+            <h2>Miércoles <span id="fecha-label"></span></h2>
+
+            <ul id="lista-titulares"></ul>
+            
+            <h2 class="suplentes-title">Suplentes:</h2>
+            <ul id="lista-suplentes"></ul>
+            
+            <button id="btn-baja" class="btn-baja">❌ DARME DE BAJA</button>
+            <button id="btn-sumarme" class="btn-sumarme">⚽ VOLVER A SUMARME</button>
+        </div>
+
+        <div id="modal-nombre" class="modal-overlay">
+            <div class="modal-content">
+                <h3>¡Bienvenido!</h3>
+                <p>¿Cuál es tu nombre o apodo?</p>
+                <input type="text" id="input-nombre" placeholder="Ej: Gonza G" autocomplete="off">
+                <p id="error-nombre" class="error-msg"></p>
+                <button id="btn-guardar-nombre" class="btn-sumarme" style="display: block; margin-top: 0;">Anotarme al partido</button>
+            </div>
+        </div>
+    </main>
+</body>
+</html>
