@@ -177,3 +177,34 @@ li:nth-child(even) { background-color: #fcfcfc; }
     min-height: 20px;
     font-weight: bold;
 }
+
+/* Botón de Suplente Voluntario */
+.btn-suplente {
+    display: none;
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 10px;
+    font-weight: bold;
+    font-size: 1rem;
+    transition: all 0.3s;
+    background-color: #f57c00;
+    color: white;
+    border: none;
+}
+.btn-suplente:hover {
+    background-color: #e65100;
+}
+
+#btn-bajar-suplente, #btn-subir-titular {
+    display: none;
+}
+
+/* Resaltado de mi nombre en la lista */
+.mi-nombre {
+    background-color: #e8f5e9 !important; /* Un verde muy clarito */
+    font-weight: bold;
+    color: var(--primary);
+    border-left: 4px solid var(--primary);
+}

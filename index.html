@@ -23,15 +23,24 @@
             
             <button id="btn-baja" class="btn-baja">❌ DARME DE BAJA</button>
             <button id="btn-sumarme" class="btn-sumarme">⚽ VOLVER A SUMARME</button>
+            <button id="btn-sumarme-suplente" class="btn-suplente">🏃‍♂️ SUMARME DE SUPLENTE</button>
+            
+            <button id="btn-bajar-suplente" class="btn-suplente">⬇️ BAJAR A SUPLENTES</button>
+            <button id="btn-subir-titular" class="btn-sumarme">⬆️ SUBIR A TITULARES</button>
+            <div id="lock-message" style="display: none; color: #d32f2f; text-align: center; font-weight: bold; margin-top: 15px; padding: 10px; background: #ffebee; border-radius: 8px;">
+                ⏳ Las inscripciones abren hoy entre las 09:00 y las 10:00 hs.
+            </div>
         </div>
 
         <div id="modal-nombre" class="modal-overlay">
             <div class="modal-content">
                 <h3>¡Bienvenido!</h3>
                 <p>¿Cuál es tu nombre o apodo?</p>
-                <input type="text" id="input-nombre" placeholder="Ej: Gonza G" autocomplete="off">
+                <input type="text" id="input-nombre" placeholder="Ej: Thiago" autocomplete="off">
                 <p id="error-nombre" class="error-msg"></p>
+                
                 <button id="btn-guardar-nombre" class="btn-sumarme" style="display: block; margin-top: 0;">Anotarme al partido</button>
+                <button id="btn-guardar-suplente" class="btn-suplente" style="display: block; margin-top: 10px;">Anotarme directo a suplentes</button>
             </div>
         </div>
     </main>

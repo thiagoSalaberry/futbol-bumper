@@ -1,53 +1,74 @@
-import { ref, set, get, onValue, remove } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
-import { db } from "./firebase.js";
+import { addPlayer, removePlayer, checkPlayerExists, checkNameInUse, listenToMatch } from './api.js';
+import { renderLists, updateButtonsVisibility, showModal, hideModal, showError } from './ui.js';
 
 // ==========================================
-// LÓGICA DE FECHAS
+// 1. CONFIGURACIÓN DE FECHAS (LUNES A DOMINGO)
 // ==========================================
-function getNextWednesday() {
-    const d = new Date();
-    const day = d.getDay();
-    let daysUntilWed = (3 - day + 7) % 7;
-    if (daysUntilWed === 0 && d.getHours() >= 22) daysUntilWed = 7;
-    d.setDate(d.getDate() + daysUntilWed);
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    return { label: `${dd}/${mm}`, id: `${dd}_${mm}` };
+const now = new Date();
+const dayOfWeek = now.getDay(); // 0 es Domingo, 1 es Lunes...
+
+// Si hoy es Domingo (0), restamos 6 días para llegar al Lunes. 
+// Si es Lunes a Sábado, restamos la diferencia.
+const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+
+const thisMonday = new Date(now);
+thisMonday.setDate(now.getDate() + daysToMonday);
+
+// El partido es el Miércoles (+2 días desde el Lunes)
+const thisWednesday = new Date(thisMonday);
+thisWednesday.setDate(thisMonday.getDate() + 2);
+
+const dd = String(thisWednesday.getDate()).padStart(2, '0');
+const mm = String(thisWednesday.getMonth() + 1).padStart(2, '0');
+const yyyy = thisWednesday.getFullYear();
+
+const matchId = `partido_${dd}_${mm}_${yyyy}`;
+document.getElementById('fecha-label').innerText = `${dd}/${mm}`;
+
+// Generamos un hash a partir de la fecha para obtener un minuto "random" 
+// pero idéntico y predecible en todos los celulares (0 a 59)
+function getSeededRandomMinute(seed) {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+        hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return Math.abs(hash) % 60; 
 }
 
-const fechaPartido = getNextWednesday();
-document.getElementById('fecha-label').innerText = fechaPartido.label;
-const matchId = `partido_${fechaPartido.id}`;
+const openingMinute = getSeededRandomMinute(matchId);
+
+// Evaluamos en tiempo real si el sistema está bloqueado
+function checkIsLocked() {
+    const currentTime = new Date();
+    if (currentTime.getDay() === 1) { // Solo bloqueamos los Lunes
+        const hour = currentTime.getHours();
+        const min = currentTime.getMinutes();
+        if (hour < 9) return true; // Antes de las 09:00
+        if (hour === 9 && min < openingMinute) return true; // Entre las 09:00 y el minuto secreto
+    }
+    return false;
+}
 
 // ==========================================
-// ACCIONES Y FUNCIONES
+// 2. ORQUESTACIÓN DE ACCIONES
 // ==========================================
-async function guardarNombre() {
+async function handleGuardarNombre(esSuplente = false) {
+    if (checkIsLocked()) {
+        alert(`Las inscripciones de hoy abren exactamente a las 09:${String(openingMinute).padStart(2, '0')} hs.`);
+        return;
+    }
+    
     const input = document.getElementById('input-nombre');
-    const errorP = document.getElementById('error-nombre');
     let name = input.value.trim();
 
     if (name === '') {
-        errorP.innerText = "¡Tenés que poner un nombre!";
+        showError("¡Tenés que poner un nombre!");
         return;
     }
 
-    const snapshot = await get(ref(db, `partidos/${matchId}`));
-    const data = snapshot.val();
-    let nameExists = false;
-    
-    if (data) {
-        const nombreIngresado = name.toLowerCase();
-        for (let key in data) {
-            if (data[key].nombre.toLowerCase() === nombreIngresado) {
-                nameExists = true;
-                break;
-            }
-        }
-    }
-
+    const nameExists = await checkNameInUse(matchId, name);
     if (nameExists) {
-        errorP.innerText = "Ya hay alguien anotado con ese nombre. ¡Agregale un apodo o tu apellido!";
+        showError("Ya hay alguien anotado con ese nombre. ¡Agregale un apodo o tu apellido!");
         return;
     }
 
@@ -55,137 +76,96 @@ async function guardarNombre() {
     localStorage.setItem('futbol_uid', uid);
     localStorage.setItem('futbol_name', name);
     
-    document.getElementById('modal-nombre').style.display = 'none';
-    
-    await set(ref(db, `partidos/${matchId}/${uid}`), {
-        nombre: name,
-        timestamp: Date.now()
-    });
+    hideModal();
+    await addPlayer(matchId, uid, name, esSuplente);
 }
 
-async function confirmarBaja() {
-    const confirmacion = confirm("¿Estás seguro de que querés darte de baja del partido?");
-    if (confirmacion) {
+async function handleConfirmarBaja() {
+    if (checkIsLocked()) return;
+    if (confirm("¿Estás seguro de que querés darte de baja del partido?")) {
         const uid = localStorage.getItem('futbol_uid');
-        await remove(ref(db, `partidos/${matchId}/${uid}`));
+        await removePlayer(matchId, uid);
         localStorage.setItem(`baja_${matchId}`, 'true'); 
-        alert("Te has dado de baja. Si cambiás de opinión, podés volver a sumarte.");
+        alert("Te has dado de baja.");
     }
 }
 
-async function volverASumarme() {
+async function handleVolverASumarme(esSuplente = false) {
+    if (checkIsLocked()) return;
     const uid = localStorage.getItem('futbol_uid');
+    
+    // Si no tiene UID, significa que esperó con la app abierta a que se desbloquee. Le mostramos el modal.
+    if (!uid) {
+        showModal();
+        return;
+    }
+
     const name = localStorage.getItem('futbol_name');
     localStorage.removeItem(`baja_${matchId}`);
-    await set(ref(db, `partidos/${matchId}/${uid}`), {
-        nombre: name,
-        timestamp: Date.now()
-    });
+    await addPlayer(matchId, uid, name, esSuplente);
 }
 
-async function autoRegister() {
+async function checkAutoRegister() {
+    if (checkIsLocked()) return; 
+
     let uid = localStorage.getItem('futbol_uid');
     let name = localStorage.getItem('futbol_name');
 
     if (!name || !uid) {
-        document.getElementById('modal-nombre').style.display = 'flex';
-        document.getElementById('input-nombre').focus();
+        showModal();
         return; 
     }
 
     const seDioDeBaja = localStorage.getItem(`baja_${matchId}`);
-    const playerRef = ref(db, `partidos/${matchId}/${uid}`);
-    const snapshot = await get(playerRef);
-    
-    if (!snapshot.exists() && seDioDeBaja !== 'true') {
-        await set(playerRef, {
-            nombre: name.trim(),
-            timestamp: Date.now()
-        });
+    if (seDioDeBaja !== 'true') {
+        const isRegistered = await checkPlayerExists(matchId, uid);
+        if (!isRegistered) {
+            await addPlayer(matchId, uid, name, false);
+        }
     }
 }
 
 // ==========================================
-// RENDERIZADO EN TIEMPO REAL
+// 3. TIEMPO REAL Y EVENTOS
 // ==========================================
-const matchRef = ref(db, `partidos/${matchId}`);
-onValue(matchRef, (snapshot) => {
-    const data = snapshot.val();
-    let players = [];
-    
-    if (data) {
-        for (let key in data) {
-            players.push({ id: key, ...data[key] });
-        }
-        players.sort((a, b) => a.timestamp - b.timestamp);
-    }
+let currentPlayers = []; 
 
+listenToMatch(matchId, (players) => {
+    currentPlayers = players;
+    actualizarPantalla();
+});
+
+function actualizarPantalla() {
+    const isLocked = checkIsLocked();
     const myUid = localStorage.getItem('futbol_uid');
-    const isMeRegistered = players.some(p => p.id === myUid);
+    const myName = localStorage.getItem('futbol_name') || '';
     const seDioDeBaja = localStorage.getItem(`baja_${matchId}`);
+    
+    const myPlayer = currentPlayers.find(p => p.id === myUid);
+    const { espacioJugadores, espacioArqueros } = renderLists(currentPlayers, myUid); // Pasamos myUid
 
-    if (isMeRegistered) {
-        document.getElementById('btn-baja').style.display = 'block';
-        document.getElementById('btn-sumarme').style.display = 'none';
-    } else if (seDioDeBaja === 'true') {
-        document.getElementById('btn-baja').style.display = 'none';
-        document.getElementById('btn-sumarme').style.display = 'block';
-    } else {
-        document.getElementById('btn-baja').style.display = 'none';
-        document.getElementById('btn-sumarme').style.display = 'none';
-    }
+    const isArquero = ['pepe', 'franco', 'zadu'].includes(myName.toLowerCase());
+    const hayEspacio = isArquero ? espacioArqueros : espacioJugadores;
 
-    let arqueros = [];
-    let jugadores = [];
-    let suplentes = [];
-    const arquerosValidos = ['pepe', 'franco', 'zadu'];
+    updateButtonsVisibility(myPlayer, seDioDeBaja, hayEspacio, isLocked);
+}
 
-    players.forEach(p => {
-        let n = p.nombre.toLowerCase();
-        if (arquerosValidos.includes(n)) {
-            if (arqueros.length < 2) arqueros.push(p);
-            else suplentes.push(p);
-        } else {
-            if (jugadores.length < 14) jugadores.push(p);
-            else suplentes.push(p);
-        }
-    });
+// Reloj interno: Chequea la hora cada 5 segundos por si se llegó al minuto de apertura
+setInterval(actualizarPantalla, 5000);
 
-    let htmlTitulares = '';
-    for (let i = 1; i <= 16; i++) {
-        if (i === 1 || i === 2) {
-            let arq = arqueros[i-1];
-            htmlTitulares += `<li>${i}. ${arq ? arq.nombre + ' 🧤' : '🧤'}</li>`;
-        } else {
-            let jug = jugadores[i-3];
-            htmlTitulares += `<li>${i}. ${jug ? jug.nombre : ''}</li>`;
-        }
-    }
-    document.getElementById('lista-titulares').innerHTML = htmlTitulares;
+// Asignación de listeners
+document.getElementById('btn-guardar-nombre').addEventListener('click', () => handleGuardarNombre(false));
+document.getElementById('btn-guardar-suplente').addEventListener('click', () => handleGuardarNombre(true));
 
-    let htmlSuplentes = '';
-    if (suplentes.length === 0) {
-        htmlSuplentes = '<li><i>Sin suplentes por ahora</i></li>';
-    } else {
-        suplentes.forEach((s, index) => {
-            htmlSuplentes += `<li>${index + 1}. ${s.nombre}</li>`;
-        });
-    }
-    document.getElementById('lista-suplentes').innerHTML = htmlSuplentes;
+document.getElementById('btn-baja').addEventListener('click', handleConfirmarBaja);
+document.getElementById('btn-sumarme').addEventListener('click', () => handleVolverASumarme(false));
+document.getElementById('btn-sumarme-suplente').addEventListener('click', () => handleVolverASumarme(true));
+document.getElementById('btn-bajar-suplente').addEventListener('click', () => handleVolverASumarme(true));
+document.getElementById('btn-subir-titular').addEventListener('click', () => handleVolverASumarme(false));
+
+document.getElementById('input-nombre').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') handleGuardarNombre(false);
 });
 
-// ==========================================
-// ASIGNACIÓN DE EVENTOS (LISTENERS)
-// ==========================================
-document.getElementById('btn-guardar-nombre').addEventListener('click', guardarNombre);
-document.getElementById('btn-baja').addEventListener('click', confirmarBaja);
-document.getElementById('btn-sumarme').addEventListener('click', volverASumarme);
-
-document.getElementById('input-nombre').addEventListener('keypress', function (e) {
-    if (e.key === 'Enter') {
-        guardarNombre();
-    }
-});
-
-// Ejecutamos el registro al entrar
-autoRegister();
+// Arranque
+checkAutoRegister();
